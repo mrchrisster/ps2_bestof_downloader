@@ -18,33 +18,47 @@ def normalize_title(title):
     return title.lower().strip()
  
 def select_file_with_highest_version(files):
-    single_bracket_files = []
-    multi_bracket_files = []
-    highest_version = "0.00"
     highest_version_file = None
+    highest_version = 0.0  # Initialize to 0.0 for comparison
+    
+    # For debugging: Track all considered versions
+    considered_versions = {}
 
-    # Categorize files based on the number of bracket sets
     for file in files:
-        if file.count('(') == 1:
-            single_bracket_files.append(file)
-        else:
-            multi_bracket_files.append(file)
+        # Skip files explicitly marked as demo
+        if "demo" in file.lower():
+            continue
 
-    # Process multi-bracket files to find the highest version
-    for file in multi_bracket_files:
-        version_numbers = re.findall(r'\(v(\d+\.\d+)\)', file)
-        if version_numbers:
-            version = max(version_numbers, key=lambda x: float(x))
+        # Try to find a version number in the file name
+        version_match = re.search(r'\bv(\d+\.\d+)', file, re.IGNORECASE)
+        if version_match:
+            version = float(version_match.group(1))
+            considered_versions[file] = version  # Track considered version
+            
             if version > highest_version:
                 highest_version = version
                 highest_version_file = file
-    
-    # If no suitable multi-bracket file is found, consider single bracket files
-    if not highest_version_file and single_bracket_files:
-        # Prefer single bracket set if it's the only option or if multi-bracket files don't contain versions
-        return single_bracket_files[0]  # Assuming single bracket files are equally suitable; adjust as needed
+                print(f"New highest version found: {version} in file {file}")  # Debugging output
+
+    if considered_versions:
+        # Print the header only if there are considered versions
+        print("Considered versions and files:")
+        for file, version in considered_versions.items():
+            print(f"{file}: v{version}")
+    else:
+        # If no versioned file was found and the list isn't empty, indicate the defaulting decision
+        if files:
+            highest_version_file = files[0]  # Default to the first file if no versions are found
+            print(f"No versioned file found, defaulting to single-bracket file: {highest_version_file}")
+
+    # After the selection process, indicate the final choice
+    if highest_version_file:
+        print(f"Final file selected: {highest_version_file}")
+    else:
+        print("No suitable file was selected.")
 
     return highest_version_file
+
 
 def normalize_string(input_string):
     # Normalize dashes as before and trim whitespace
@@ -53,47 +67,39 @@ def normalize_string(input_string):
     
 def generate_download_links(game_titles, xml_roots, base_urls):
     download_links = {}
-    excluded_titles = set(game_titles)  # Start with all titles considered as excluded
-    partial_matches = {}  # To track titles that matched partially
+    partial_matches = {}  # Initialize to track partial matches
+    potential_files = {title: [] for title in game_titles}  # Prepare to collect files for each title
 
     for base_url, root in zip(base_urls, xml_roots):
         for file in root.findall('file'):
-            file_name = file.get('name')
-
-            # Skip files marked as demos
-            if "(demo)" in file_name.lower():
-                continue  # Skip this file and proceed to the next one
-
+            file_name = file.get('name').lower()
+            
+            # Check each game title for a potential match without immediately deciding
             for game_title in game_titles:
-                normalized_game_title = re.escape(game_title.lower())
+                normalized_game_title = re.escape(normalize_title(game_title))
                 pattern = '^' + normalized_game_title + r'(?:(?:\s+\(.*?\))*.7z)$'
                 if re.search(pattern, file_name, re.IGNORECASE):
-                    excluded_titles.discard(game_title)  # Found an exact match
+                    # Collect potential files instead of deciding immediately
+                    potential_files[game_title].append(file_name)
+    
+    # Now, apply selection logic to each collected list of potential files
+    for game_title, files in potential_files.items():
+        if files:  # If there are potential files for this title
+            selected_file = select_file_with_highest_version(files)
+            if selected_file:
+                # If a file is selected, it's no longer considered a partial match, hence removed from partial matches if exists
+                partial_matches.pop(game_title, None)
+                # Construct the download link for the selected file
+                part_after_items = base_urls[0].split("/items/")[-1].split('/')[0]  # Assuming all URLs follow a similar structure
+                encoded_file_name = quote(selected_file)
+                download_link = f"https://archive.org/download/{part_after_items}/{encoded_file_name}"
+                download_links[game_title] = download_link
+        else:
+            # If no files are found for a title, it could be considered a partial match or excluded
+            partial_matches[game_title] = "No files found"
 
-                    # URL-encode file name and construct download link
-                    part_after_items = base_url.split("/items/")[-1].split('/')[0]
-                    encoded_file_name = quote(file_name)  # URL-encode the file name
-                    download_link = f"https://archive.org/download/{part_after_items}/{encoded_file_name}"
-                    download_links[game_title] = download_link  # Store the download link
-
-    # Second pass for partial matches among the titles not matched exactly
-    for game_title in list(excluded_titles):  # Work on a copy since we'll modify the set during iteration
-        for base_url, root in zip(base_urls, xml_roots):
-            for file in root.findall('file'):
-                file_name = file.get('name')
-                if "(demo)" in file_name.lower():
-                    continue  # Again, skip demo files
-
-                # Check for partial match, excluding demos explicitly
-                if game_title.lower() in file_name.lower():
-                    excluded_titles.discard(game_title)
-                    partial_matches[game_title] = file_name
-
-                    # Construct download link for partial match, with URL encoding
-                    part_after_items = base_url.split("/items/")[-1].split('/')[0]
-                    encoded_file_name = quote(file_name)
-                    download_link = f"https://archive.org/download/{part_after_items}/{encoded_file_name}"
-                    download_links[game_title] = download_link
+    # Determine which titles were excluded based on files found
+    excluded_titles = [title for title in game_titles if title not in download_links and title not in partial_matches]
 
     return download_links, partial_matches, sorted(excluded_titles)
 

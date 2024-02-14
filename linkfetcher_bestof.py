@@ -1,6 +1,7 @@
 import xml.etree.ElementTree as ET
 import requests
 import re
+from urllib.parse import quote
 
 # Function to fetch and parse XML from a given URL
 def fetch_and_parse_xml(url):
@@ -17,21 +18,31 @@ def normalize_title(title):
     return title.lower().strip()
  
 def select_file_with_highest_version(files):
-    """
-    Selects the file with the highest version number from a list of files.
-    If no version number is present, defaults to a basic comparison.
-    """
+    single_bracket_files = []
+    multi_bracket_files = []
+    highest_version = "0.00"
     highest_version_file = None
-    highest_version = "0.00"  # Default version
 
+    # Categorize files based on the number of bracket sets
     for file in files:
-        # Extract version numbers, assuming they are in the format (vX.XX)
-        version_match = re.search(r'\(v(\d+\.\d+)\)', file)
-        version = version_match.group(1) if version_match else "0.00"
+        if file.count('(') == 1:
+            single_bracket_files.append(file)
+        else:
+            multi_bracket_files.append(file)
 
-        if version > highest_version or not highest_version_file:
-            highest_version = version
-            highest_version_file = file
+    # Process multi-bracket files to find the highest version
+    for file in multi_bracket_files:
+        version_numbers = re.findall(r'\(v(\d+\.\d+)\)', file)
+        if version_numbers:
+            version = max(version_numbers, key=lambda x: float(x))
+            if version > highest_version:
+                highest_version = version
+                highest_version_file = file
+    
+    # If no suitable multi-bracket file is found, consider single bracket files
+    if not highest_version_file and single_bracket_files:
+        # Prefer single bracket set if it's the only option or if multi-bracket files don't contain versions
+        return single_bracket_files[0]  # Assuming single bracket files are equally suitable; adjust as needed
 
     return highest_version_file
 
@@ -39,38 +50,53 @@ def normalize_string(input_string):
     # Normalize dashes as before and trim whitespace
     normalized_string = input_string.replace("–", "-").replace("—", "-").strip()
     return normalized_string
-
+    
 def generate_download_links(game_titles, xml_roots, base_urls):
     download_links = {}
-    excluded_titles = set(game_titles)  # Initially assume all titles are excluded
-    partial_matches = {}  # To track titles that were matched partially
+    excluded_titles = set(game_titles)  # Start with all titles considered as excluded
+    partial_matches = {}  # To track titles that matched partially
 
-    # First pass: Attempt to find exact matches
     for base_url, root in zip(base_urls, xml_roots):
         for file in root.findall('file'):
             file_name = file.get('name')
+
+            # Skip files marked as demos
+            if "(demo)" in file_name.lower():
+                continue  # Skip this file and proceed to the next one
 
             for game_title in game_titles:
                 normalized_game_title = re.escape(game_title.lower())
                 pattern = '^' + normalized_game_title + r'(?:(?:\s+\(.*?\))*.7z)$'
                 if re.search(pattern, file_name, re.IGNORECASE):
                     excluded_titles.discard(game_title)  # Found an exact match
-                    # Store the download link as before...
 
-    # Second pass: Attempt to find partial matches for remaining titles
-    for game_title in excluded_titles.copy():  # Work on a copy since we'll modify the set during iteration
+                    # URL-encode file name and construct download link
+                    part_after_items = base_url.split("/items/")[-1].split('/')[0]
+                    encoded_file_name = quote(file_name)  # URL-encode the file name
+                    download_link = f"https://archive.org/download/{part_after_items}/{encoded_file_name}"
+                    download_links[game_title] = download_link  # Store the download link
+
+    # Second pass for partial matches among the titles not matched exactly
+    for game_title in list(excluded_titles):  # Work on a copy since we'll modify the set during iteration
         for base_url, root in zip(base_urls, xml_roots):
             for file in root.findall('file'):
                 file_name = file.get('name')
+                if "(demo)" in file_name.lower():
+                    continue  # Again, skip demo files
+
+                # Check for partial match, excluding demos explicitly
                 if game_title.lower() in file_name.lower():
-                    excluded_titles.discard(game_title)  # Found a partial match
-                    partial_matches[game_title] = file_name  # Track the partial match
-                    # Construct and store the download link as before...
+                    excluded_titles.discard(game_title)
+                    partial_matches[game_title] = file_name
 
-    return download_links, partial_matches, sorted(list(excluded_titles))
+                    # Construct download link for partial match, with URL encoding
+                    part_after_items = base_url.split("/items/")[-1].split('/')[0]
+                    encoded_file_name = quote(file_name)
+                    download_link = f"https://archive.org/download/{part_after_items}/{encoded_file_name}"
+                    download_links[game_title] = download_link
 
+    return download_links, partial_matches, sorted(excluded_titles)
 
-    
 # Main execution block
 if __name__ == "__main__":
     # Read game titles from a file

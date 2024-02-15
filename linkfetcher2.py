@@ -120,7 +120,6 @@ def generate_download_links(game_titles, xml_data_urls, input_filename):
         for title, download_link in sorted_matched_games.items():
             links_file.write(f"Title: {title}\nDownload Link: {download_link}\n\n")
     
-    # Add this snippet here, before the return statement
     print("\nUnmatched Titles:")
     for title in sorted(unmatched_titles):
         print(title)

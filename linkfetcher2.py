@@ -67,20 +67,29 @@ def select_most_similar_file(game_title, files):
   
 def generate_download_links(game_titles, xml_data_urls, input_filename):
     all_files = []
+    file_sources = {}  # Dictionary to map file names to their source URLs
+
     for url in xml_data_urls:
         root = fetch_and_parse_xml(url)
         if root:
-            all_files.extend([file.get('name') for file in root.findall('file')])
+            files_in_current_xml = [file.get('name') for file in root.findall('file')]
+            all_files.extend(files_in_current_xml)
+            for file_name in files_in_current_xml:
+                # Extract part after '/items/' and before the next slash if present
+                source_identifier = url.split("/items/")[-1].split('/')[0]
+                file_sources[file_name] = source_identifier
     
     all_files_sorted = sorted([f for f in all_files if not is_excluded(f)], key=lambda x: x.lower())
 
-    matched_games = {}  # Store matched games as {game_title: matched_file}
+    matched_games = {}  # Store matched games as {game_title: download_link}
     unmatched_titles = []  # List to store unmatched game titles
 
     for game_title in game_titles:
         selected_file, score = select_most_similar_file(game_title, all_files_sorted)
         if selected_file:
-            matched_games[game_title] = selected_file
+            source_identifier = file_sources[selected_file]
+            download_link = f"https://archive.org/download/{source_identifier}/{quote(selected_file)}"
+            matched_games[game_title] = download_link
         else:
             unmatched_titles.append(game_title)
 
@@ -90,18 +99,25 @@ def generate_download_links(game_titles, xml_data_urls, input_filename):
     # Create log filename based on input filename with "_log" appended
     log_filename = f"{input_filename.rsplit('.', 1)[0]}_log.txt"
 
-    # Write matched games and unmatched titles to log file, sorted alphabetically
+    # Write matched games (without download links) and unmatched titles to log file, sorted alphabetically
     with open(log_filename, "w") as log_file:
-        log_file.write("Matched Titles and Files:\n")
-        for title, filename in sorted_matched_games.items():
-            log_file.write(f"Title: {title}\nMatched File: {filename}\n\n")
+        log_file.write("Matched Titles:\n")
+        for title in sorted_matched_games.keys():
+            log_file.write(f"{title}\n")
         
         if unmatched_titles:
-            log_file.write("Unmatched Titles:\n")
+            log_file.write("\nUnmatched Titles:\n")
             for title in sorted(unmatched_titles):
                 log_file.write(f"{title}\n")
 
+    # Create a separate file for download links
+    links_filename = f"{input_filename.rsplit('.', 1)[0]}_links.txt"
+    with open(links_filename, "w") as links_file:
+        for title, download_link in sorted_matched_games.items():
+            links_file.write(f"Title: {title}\nDownload Link: {download_link}\n\n")
+
     return unmatched_titles, sorted_matched_games
+
 
 if __name__ == "__main__":
     input_filename = "greatest_ps2.txt"

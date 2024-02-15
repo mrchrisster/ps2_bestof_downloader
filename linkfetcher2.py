@@ -3,6 +3,8 @@ import requests
 import re
 from urllib.parse import quote
 from fuzzywuzzy import fuzz, process
+from urllib.parse import unquote
+
 
 def fetch_and_parse_xml(url):
     try:
@@ -103,12 +105,14 @@ def generate_download_links(game_titles, xml_data_urls, input_filename):
     with open(log_filename, "w") as log_file:
         log_file.write("Matched Titles:\n")
         for title in sorted_matched_games.keys():
-            log_file.write(f"{title}\n")
+            download_link = matched_games[title]
+            filename = unquote(download_link.split('/')[-1])  # Decode URL encoding and extract filename
+            log_file.write(f"{title}\n{filename}\n\n")
         
         if unmatched_titles:
             log_file.write("\nUnmatched Titles:\n")
             for title in sorted(unmatched_titles):
-                log_file.write(f"{title}\n")
+                log_file.write(f"{title}\n\n")
 
     # Create a separate file for download links
     links_filename = f"{input_filename.rsplit('.', 1)[0]}_links.txt"

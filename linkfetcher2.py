@@ -119,7 +119,12 @@ def generate_download_links(game_titles, xml_data_urls, input_filename):
     with open(links_filename, "w") as links_file:
         for title, download_link in sorted_matched_games.items():
             links_file.write(f"Title: {title}\nDownload Link: {download_link}\n\n")
-
+    
+    # Add this snippet here, before the return statement
+    print("\nUnmatched Titles:")
+    for title in sorted(unmatched_titles):
+        print(title)
+    
     return unmatched_titles, sorted_matched_games
 
 
@@ -127,6 +132,7 @@ if __name__ == "__main__":
     input_filename = "greatest_ps2.txt"
     with open(input_filename, "r") as file:
         game_titles = [line.strip() for line in file.readlines()]
+        game_titles = [title for title in game_titles if not title.strip().startswith('#')]
 
     xml_data_urls = [
         "https://ia800505.us.archive.org/7/items/redumpSonyPlaystation2UsaGames2018Aug01/redumpSonyPlaystation2UsaGames2018Aug01_files.xml",
